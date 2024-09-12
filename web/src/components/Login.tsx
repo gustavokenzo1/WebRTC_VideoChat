@@ -7,6 +7,7 @@ interface LoginProps {
   setUsername: React.Dispatch<React.SetStateAction<string>>;
   roomId: string;
   setRoomId: React.Dispatch<React.SetStateAction<string>>;
+  setMode: React.Dispatch<React.SetStateAction<string>>;
 }
 
 export default function Login({
@@ -15,10 +16,10 @@ export default function Login({
   setUsername,
   roomId,
   setRoomId,
+  setMode,
 }: LoginProps) {
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const [isMuted, setIsMuted] = useState(true);
-  const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
     navigator.mediaDevices
@@ -41,6 +42,7 @@ export default function Login({
   };
 
   function handleJoinRoom() {
+    setMode('remote');
     setIsHomeScreen(false);
   }
 
@@ -48,6 +50,7 @@ export default function Login({
     const id = uuidv4();
 
     setRoomId(id);
+    setMode('local');
     setIsHomeScreen(false);
   }
 

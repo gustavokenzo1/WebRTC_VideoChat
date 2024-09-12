@@ -1,6 +1,6 @@
 import express from 'express';
 import http from 'http';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, WebSocket } from 'ws';
 
 const app = express();
 const server = http.createServer(app);
@@ -13,55 +13,74 @@ interface Room {
 const rooms: Room = {}; // Objeto para armazenar as salas e os clientes conectados
 
 wss.on('connection', (ws) => {
-  console.log('Novo cliente conectado');
-
   ws.on('message', (message) => {
     const data = JSON.parse(message.toString());
 
     switch (data.type) {
-      case 'join': {
-        // Cliente se juntando a uma sala
-        const { roomId } = data;
-
-        if (!rooms[roomId]) {
-          rooms[roomId] = new Set();
+      case 'join':
+        // Verifica se a sala já existe, se não, cria uma nova
+        if (!rooms[data.roomId]) {
+          rooms[data.roomId] = new Set();
         }
-
-        rooms[roomId].add(ws);
-        console.log(`Usuário entrou na sala: ${roomId}`);
+        rooms[data.roomId].add(ws); // Adiciona o cliente à sala
+        console.log(`Usuário ${data.username} entrou na sala ${data.roomId}`);
         break;
-      }
 
       case 'offer':
-      case 'answer':
-      case 'ice-candidate': {
-        // Repasse de mensagens para outros clientes na mesma sala
-        const { roomId } = data;
-
-        if (rooms[roomId]) {
-          rooms[roomId].forEach((client) => {
-            if (client !== ws && client.readyState === WebSocket.OPEN) {
-              client.send(JSON.stringify(data));
+        // Verifica se a sala existe antes de enviar a oferta
+        if (rooms[data.roomId]) {
+          rooms[data.roomId].forEach(client => {
+            if (client !== ws) {
+              client.send(JSON.stringify({ type: 'offer', sdp: data.sdp }));
             }
           });
+        } else {
+          console.error(`Sala ${data.roomId} não encontrada para enviar offer.`);
         }
         break;
-      }
 
-      default:
-        console.log('Tipo de mensagem desconhecido:', data.type);
+      case 'answer':
+        // Verifica se a sala existe antes de enviar a resposta
+        if (rooms[data.roomId]) {
+          rooms[data.roomId].forEach(client => {
+            if (client !== ws) {
+              client.send(JSON.stringify({ type: 'answer', sdp: data.sdp }));
+            }
+          });
+        } else {
+          console.error(`Sala ${data.roomId} não encontrada para enviar answer.`);
+        }
+        break;
+
+      case 'ice-candidate':
+        // Verifica se a sala existe antes de enviar o ICE Candidate
+        if (rooms[data.roomId]) {
+          rooms[data.roomId].forEach(client => {
+            if (client !== ws) {
+              client.send(JSON.stringify({
+                type: 'ice-candidate',
+                candidate: data.candidate,
+                sdpMid: data.sdpMid,
+                sdpMLineIndex: data.sdpMLineIndex,
+              }));
+            }
+          });
+        } else {
+          console.error(`Sala ${data.roomId} não encontrada para enviar ICE candidate.`);
+        }
+        break;
     }
   });
 
+  // Quando o WebSocket é fechado, remove o cliente da sala
   ws.on('close', () => {
-    console.log('Cliente desconectado');
-    // Remover cliente de todas as salas quando ele desconectar
-    Object.keys(rooms).forEach((roomId) => {
+    for (const roomId in rooms) {
       rooms[roomId].delete(ws);
       if (rooms[roomId].size === 0) {
-        delete rooms[roomId]; // Se a sala estiver vazia, exclua-a
+        delete rooms[roomId]; // Remove a sala se estiver vazia
+        console.log(`Sala ${roomId} foi removida por estar vazia.`);
       }
-    });
+    }
   });
 });
 
