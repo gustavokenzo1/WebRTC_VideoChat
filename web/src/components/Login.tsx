@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faVolumeMute, faVolumeUp } from '@fortawesome/free-solid-svg-icons';
 
 interface LoginProps {
   setIsHomeScreen: React.Dispatch<React.SetStateAction<boolean>>;
@@ -20,6 +22,7 @@ export default function Login({
 }: LoginProps) {
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const [isMuted, setIsMuted] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null); // Estado para mensagem de erro
 
   useEffect(() => {
     navigator.mediaDevices
@@ -36,14 +39,24 @@ export default function Login({
   };
 
   function handleJoinRoom() {
+    if (!username) {
+      setErrorMessage('Por favor, insira um nome de usuário.');
+      return;
+    }
+    // Sucesso - Limpa a mensagem de erro e segue para a sala
+    setErrorMessage(null);
     setMode('remote');
     setIsHomeScreen(false);
   }
 
   function handleCreateRoom() {
+    if (!username) {
+      setErrorMessage('Por favor, insira um nome de usuário.');
+      return;
+    }
     const id = uuidv4();
-
     setRoomId(id);
+    setErrorMessage(null);
     setMode('local');
     setIsHomeScreen(false);
   }
@@ -59,12 +72,14 @@ export default function Login({
         muted={isMuted}
       ></video>
       <button
-        className="bg-cyan-700 p-2 rounded-md mt-4 hover:bg-cyan-900 transition-colors"
+        className="bg-cyan-700 p-2 rounded-md mt-4 hover:bg-cyan-900 transition-colors flex items-center gap-2"
         type="button"
         onClick={toggleMute}
       >
+        <FontAwesomeIcon icon={isMuted ? faVolumeMute : faVolumeUp} size="lg" />
         {isMuted ? 'Testar áudio' : 'Desativar teste de áudio'}
       </button>
+      
       <div className="w-1/2 mt-4">
         <h1>Nome de usuário</h1>
         <input
@@ -75,7 +90,9 @@ export default function Login({
           onChange={(e) => setUsername(e.target.value)}
         />
       </div>
+
       <span className="h-[2px] w-full bg-cyan-700 mt-4" />
+
       <div className="w-full flex flex-row justify-between gap-6 mt-4 items-center">
         <div className="w-1/2">
           <h1>Entrar em uma reunião</h1>
@@ -89,7 +106,7 @@ export default function Login({
           <button
             className="bg-cyan-700 p-2 rounded-md mt-4 hover:bg-cyan-900 transition-colors w-full"
             type="button"
-            onClick={() => handleJoinRoom()}
+            onClick={handleJoinRoom}
           >
             Entrar
           </button>
@@ -99,12 +116,19 @@ export default function Login({
           <button
             className="bg-cyan-700 p-2 rounded-md mt-4 hover:bg-cyan-900 transition-colors w-full"
             type="button"
-            onClick={() => handleCreateRoom()}
+            onClick={handleCreateRoom}
           >
             Criar uma nova reunião
           </button>
         </div>
       </div>
+
+      {/* Exibe a mensagem de erro, se existir */}
+      {errorMessage && (
+        <div className="bg-red-500 text-white p-2 rounded-md mt-4 w-full text-center">
+          {errorMessage}
+        </div>
+      )}
     </div>
   );
 }

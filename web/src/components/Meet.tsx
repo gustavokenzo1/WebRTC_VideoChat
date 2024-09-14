@@ -1,10 +1,13 @@
-import { useEffect, useRef } from 'react';
+import { faHandPaper, faHandRock } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { useEffect, useRef, useState } from 'react';
 
 interface MeetProps {
   username: string;
   roomId: string;
   mode: string;
 }
+
 
 const servers: RTCConfiguration = {
   iceServers: [
@@ -36,7 +39,9 @@ const connectWebSocket = (url: string): Promise<WebSocket> => {
 export default function Meet({ username, roomId, mode }: MeetProps) {
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
-  let iceCandidateBuffer: RTCIceCandidate[] = [];
+  const iceCandidateBuffer: RTCIceCandidate[] = [];
+
+  const [remoteRaiseHand, setRemoteRaiseHand] = useState<boolean>(false);
 
   let localStream: MediaStream | null = null;
   let remoteStream: MediaStream | null = null;
@@ -45,6 +50,22 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
   const peerConnection = useRef<RTCPeerConnection | null>(
     new RTCPeerConnection(servers)
   );
+
+  const [isHandRaised, setIsHandRaised] = useState(false);
+
+  const toggleRaiseHand = () => {
+    setIsHandRaised(!isHandRaised);
+
+    // Send raise hand message to other participants (WebSocket integration)
+    ws.current?.send(
+      JSON.stringify({
+        type: 'raise-hand',
+        username,
+        handRaised: !isHandRaised,
+        roomId,
+      })
+    );
+  };
 
   async function getUserLocalMedia() {
     try {
@@ -72,6 +93,7 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
 
   function getUserRemoteMedia() {
     remoteStream = new MediaStream();
+    let videoTrackSet = false;
 
     if (peerConnection.current && remoteVideoRef.current) {
       peerConnection.current.ontrack = (event) => {
@@ -80,10 +102,20 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
           console.log('Recebendo track remota:', track);
           remoteStream.addTrack(track);
         }
+        if (track.kind === 'video' && remoteVideoRef.current) {
+          if (!videoTrackSet) {
+            // Set the video track if it's the first one or based on custom logic
+            remoteVideoRef.current.srcObject = remoteStream;
+            videoTrackSet = true;
+            console.log('Video track set:', track);
+          } else {
+            console.log('Additional video track received, but not setting it:', track);
+          }
+        }
         });
       };
 
-      remoteVideoRef.current.srcObject = remoteStream;
+      // remoteVideoRef.current.srcObject = remoteStream;
     }
   }
 
@@ -141,8 +173,9 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
               sdp: answerDescription.sdp,
             })
           );
-
+          
           iceCandidateBuffer.forEach((candidate) => {
+            console.log('Sending stored ICE candidate:', candidate);
             ws.current?.send(
               JSON.stringify({
                 type: 'ice-candidate',
@@ -153,7 +186,7 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
           });
       
           // Clear the buffer once sent
-          iceCandidateBuffer = [];
+          // iceCandidateBuffer = [];
 
           console.log('Answer created and sent:', answerDescription);
         } catch (error) {
@@ -172,8 +205,16 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
       peerConnection.current.onicecandidate = (event) => {
       if (event.candidate) {
 
-        console.log('stored ICE candidate:', event.candidate);
+        ws.current?.send(
+          JSON.stringify({
+            type: 'ice-candidate',
+            candidate: event.candidate,
+            roomId,
+          })
+        );
+
         iceCandidateBuffer.push(event.candidate);
+
         
       } else {
         console.log('ICE candidate gathering completed.');
@@ -215,6 +256,7 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
           if(peerConnection && peerConnection.current) {
           if (data.type === 'answer' && mode === 'local') {
             console.log('Received answer, setting remote description...');
+            getUserRemoteMedia();
             const answerDescription = new RTCSessionDescription({
               type: 'answer',
               sdp: data.sdp,
@@ -233,7 +275,7 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
           });
       
           // Clear the buffer once sent
-          iceCandidateBuffer = [];
+          // iceCandidateBuffer = [];
 
 
             console.log('Remote description set:', answerDescription);
@@ -249,6 +291,13 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
             peerConnection.current.addIceCandidate(candidate);
           }
         };
+
+        if (data.type === 'raise-hand') {
+          console.log(`${data.username} has ${data.handRaised ? 'raised' : 'lowered'} their hand.`);
+    
+          // Call a function to update the hand status UI for the user
+          setRemoteRaiseHand(data.handRaised);
+        }
         }
   
         
@@ -257,6 +306,7 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
           if (!peerConnection.current) return;
           console.log('Connection state change:', peerConnection.current.connectionState);
           if (peerConnection.current.connectionState === 'connected') {
+            getUserRemoteMedia();
             console.log('Peers are connected!');
           } else if (peerConnection.current.connectionState === 'disconnected' || peerConnection.current.connectionState === 'failed') {
             console.error('Connection failed or disconnected');
@@ -281,21 +331,51 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
   
 
   return (
-    <div className="w-screen h-screen bg-cyan-900 flex flex-row p-8 gap-4 items-center justify-center text-white">
-      <p>ID da sala: {roomId}</p>
-      <video
-        autoPlay
-        playsInline
-        className="rounded-lg mt-4 w-1/2"
-        ref={localVideoRef}
-        muted
-      ></video>
-      <video
-        autoPlay
-        playsInline
-        className="rounded-lg mt-4 w-1/2 bg-cyan-800"
-        ref={remoteVideoRef}
-      ></video>
+    <div className="w-screen h-screen bg-cyan-900 flex flex-col gap-4 items-center justify-center text-white p-8">
+      <div className="flex flex-row gap-4 w-full justify-between items-center">
+        <p>ID da sala: {roomId}</p>
+      </div>
+  
+      <div className="flex flex-row gap-4 w-full justify-center">
+        <div className="flex items-center gap-2">
+          <FontAwesomeIcon
+            icon={isHandRaised ? faHandPaper : faHandRock}
+            className={`text-4xl ${isHandRaised ? 'text-yellow-400' : 'text-gray-400'}`}
+          />
+          <button
+            onClick={toggleRaiseHand}
+            className="px-4 py-2 bg-green-600 rounded-lg hover:bg-green-700"
+          >
+            {isHandRaised ? 'Lower Hand' : 'Raise Hand'}
+          </button>
+        </div>
+        <video
+          autoPlay
+          playsInline
+          className="rounded-lg w-1/2 bg-gray-800"
+          ref={localVideoRef}
+          muted
+        ></video>
+        <FontAwesomeIcon
+          icon={remoteRaiseHand ? faHandPaper : faHandRock}
+          className={`text-4xl ${remoteRaiseHand ? 'text-yellow-400' : 'text-gray-400'}`}
+        />
+
+        <video
+          autoPlay
+          playsInline
+          className="rounded-lg w-1/2 bg-gray-800"
+          ref={remoteVideoRef}
+        ></video>
+      </div>
     </div>
   );
+  
 }
+
+
+
+
+
+
+
