@@ -36,6 +36,8 @@ const connectWebSocket = (url: string): Promise<WebSocket> => {
 export default function Meet({ username, roomId, mode }: MeetProps) {
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  let iceCandidateBuffer: RTCIceCandidate[] = [];
+
   let localStream: MediaStream | null = null;
   let remoteStream: MediaStream | null = null;
 
@@ -74,8 +76,10 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
     if (peerConnection.current && remoteVideoRef.current) {
       peerConnection.current.ontrack = (event) => {
         event.streams[0].getTracks().forEach((track) => {
+          if(remoteStream){
           console.log('Recebendo track remota:', track);
           remoteStream.addTrack(track);
+        }
         });
       };
 
@@ -107,7 +111,7 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
     }
   }
 
-  async function handleReceiveOffer(offer) {
+  async function handleReceiveOffer(offer: RTCSessionDescriptionInit) {
     if (peerConnection.current) {
       console.log('Signaling state before setting remote offer:', peerConnection.current.signalingState);
   
@@ -137,6 +141,20 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
               sdp: answerDescription.sdp,
             })
           );
+
+          iceCandidateBuffer.forEach((candidate) => {
+            ws.current?.send(
+              JSON.stringify({
+                type: 'ice-candidate',
+                candidate,
+                roomId,
+              })
+            );
+          });
+      
+          // Clear the buffer once sent
+          iceCandidateBuffer = [];
+
           console.log('Answer created and sent:', answerDescription);
         } catch (error) {
           console.error('Failed to create or set local description for answer:', error);
@@ -150,28 +168,27 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
 
   useEffect(() => {
 
-
+    if(peerConnection && peerConnection.current) {
       peerConnection.current.onicecandidate = (event) => {
       if (event.candidate) {
-        console.log('Sending ICE candidate:', event.candidate);
-        ws.current?.send(
-          JSON.stringify({
-            type: 'ice-candidate',
-            candidate: event.candidate,
-            roomId,
-          })
-        );
+
+        console.log('stored ICE candidate:', event.candidate);
+        iceCandidateBuffer.push(event.candidate);
+        
       } else {
         console.log('ICE candidate gathering completed.');
       }
     };
 
     peerConnection.current.onicegatheringstatechange = () => {
+
+      if (!peerConnection.current) return;
       console.log('ICE gathering state changed to:', peerConnection.current.iceGatheringState);
       if (peerConnection.current.iceGatheringState === 'complete') {
         console.log('ICE gathering complete.');
       }
     };
+    }
     const connect = async () => {
       try {
         ws.current = await connectWebSocket('ws://localhost:3000');
@@ -195,7 +212,7 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
               sdp: data.sdp,
             });
           }
-  
+          if(peerConnection && peerConnection.current) {
           if (data.type === 'answer' && mode === 'local') {
             console.log('Received answer, setting remote description...');
             const answerDescription = new RTCSessionDescription({
@@ -203,6 +220,22 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
               sdp: data.sdp,
             });
             await peerConnection.current.setRemoteDescription(answerDescription);
+
+
+          iceCandidateBuffer.forEach((candidate) => {
+            ws.current?.send(
+              JSON.stringify({
+                type: 'ice-candidate',
+                candidate,
+                roomId,
+              })
+            );
+          });
+      
+          // Clear the buffer once sent
+          iceCandidateBuffer = [];
+
+
             console.log('Remote description set:', answerDescription);
           }
   
@@ -216,9 +249,12 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
             peerConnection.current.addIceCandidate(candidate);
           }
         };
+        }
   
-     
+        
+        if(peerConnection && peerConnection.current) {
         peerConnection.current.onconnectionstatechange = () => {
+          if (!peerConnection.current) return;
           console.log('Connection state change:', peerConnection.current.connectionState);
           if (peerConnection.current.connectionState === 'connected') {
             console.log('Peers are connected!');
@@ -226,6 +262,7 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
             console.error('Connection failed or disconnected');
           }
         };
+      }
   
         if (mode === 'local') {
           console.log('Creating offer...');
