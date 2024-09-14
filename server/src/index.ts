@@ -7,83 +7,119 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
 interface Room {
-  [key: string]: Set<WebSocket>; // Mapeia o roomId para um conjunto de clientes
+  clients: Set<WebSocket>; // Store all clients (peers) in this room
+  offer: RTCSessionDescriptionInit | null; // Store the current offer, if any
 }
 
-const rooms: Room = {}; // Objeto para armazenar as salas e os clientes conectados
+const rooms: { [key: string]: Room } = {}; // Object to store rooms and their clients + offer
 
 wss.on('connection', (ws) => {
+  let currentRoomId: string | null = null;
+
   ws.on('message', (message) => {
     const data = JSON.parse(message.toString());
 
     switch (data.type) {
       case 'join':
-        // Verifica se a sala já existe, se não, cria uma nova
-        if (!rooms[data.roomId]) {
-          rooms[data.roomId] = new Set();
+        currentRoomId = data.roomId;
+
+        if (!currentRoomId) {
+          return;
         }
-        rooms[data.roomId].add(ws); // Adiciona o cliente à sala
-        console.log(`Usuário ${data.username} entrou na sala ${data.roomId}`);
+
+        // Check if the room exists, if not create a new one
+        if (!rooms[currentRoomId]) {
+          rooms[currentRoomId] = { clients: new Set(), offer: null };
+        }
+        
+        // Add the new client to the room
+        rooms[currentRoomId].clients.add(ws);
+        console.log(`User ${data.username} joined room ${currentRoomId}`);
+        
+        // If an offer already exists, send it to the newly joined client
+        if (rooms[currentRoomId].offer) {
+          console.log('Sending offer to new client...');
+          ws.send(
+            JSON.stringify({
+              type: 'offer',
+              sdp: rooms[currentRoomId].offer?.sdp,
+              roomId: currentRoomId,
+            })
+          );
+        }
         break;
 
       case 'offer':
-        // Verifica se a sala existe antes de enviar a oferta
+        // Store the offer in the room
         if (rooms[data.roomId]) {
-          rooms[data.roomId].forEach(client => {
+          rooms[data.roomId].offer = { type: 'offer', sdp: data.sdp };
+          console.log(`Offer stored for room ${data.roomId}`);
+          
+          // Broadcast the offer to all clients except the sender
+          rooms[data.roomId].clients.forEach(client => {
             if (client !== ws) {
-              client.send(JSON.stringify({ type: 'offer', sdp: data.sdp }));
+              client.send(
+                JSON.stringify({
+                  type: 'offer',
+                  sdp: data.sdp,
+                  roomId: data.roomId,
+                })
+              );
             }
           });
-        } else {
-          console.error(`Sala ${data.roomId} não encontrada para enviar offer.`);
         }
         break;
 
       case 'answer':
-        // Verifica se a sala existe antes de enviar a resposta
+        // Broadcast the answer to all clients in the room except the sender
+        console.log('Sending answer to all clients...');
         if (rooms[data.roomId]) {
-          rooms[data.roomId].forEach(client => {
+          rooms[data.roomId].clients.forEach(client => {
             if (client !== ws) {
-              client.send(JSON.stringify({ type: 'answer', sdp: data.sdp }));
+              client.send(
+                JSON.stringify({
+                  type: 'answer',
+                  sdp: data.sdp,
+                  roomId: data.roomId,
+                })
+              );
             }
           });
-        } else {
-          console.error(`Sala ${data.roomId} não encontrada para enviar answer.`);
         }
         break;
 
       case 'ice-candidate':
-        // Verifica se a sala existe antes de enviar o ICE Candidate
+        // Broadcast the ICE candidate to all clients in the room except the sender
         if (rooms[data.roomId]) {
-          rooms[data.roomId].forEach(client => {
+          rooms[data.roomId].clients.forEach(client => {
             if (client !== ws) {
-              client.send(JSON.stringify({
-                type: 'ice-candidate',
-                candidate: data.candidate,
-                sdpMid: data.sdpMid,
-                sdpMLineIndex: data.sdpMLineIndex,
-              }));
+              client.send(
+                JSON.stringify({
+                  type: 'ice-candidate',
+                  candidate: data.candidate,
+                  sdpMid: data.sdpMid,
+                  sdpMLineIndex: data.sdpMLineIndex,
+                })
+              );
             }
           });
-        } else {
-          console.error(`Sala ${data.roomId} não encontrada para enviar ICE candidate.`);
         }
         break;
     }
   });
 
-  // Quando o WebSocket é fechado, remove o cliente da sala
+  // When the WebSocket is closed, remove the client from the room
   ws.on('close', () => {
-    for (const roomId in rooms) {
-      rooms[roomId].delete(ws);
-      if (rooms[roomId].size === 0) {
-        delete rooms[roomId]; // Remove a sala se estiver vazia
-        console.log(`Sala ${roomId} foi removida por estar vazia.`);
+    if (currentRoomId && rooms[currentRoomId]) {
+      rooms[currentRoomId].clients.delete(ws);
+      if (rooms[currentRoomId].clients.size === 0) {
+        delete rooms[currentRoomId]; // Remove the room if it's empty
+        console.log(`Room ${currentRoomId} was deleted as it's empty.`);
       }
     }
   });
 });
 
 server.listen(3000, () => {
-  console.log('Servidor escutando na porta 3000');
+  console.log('Server listening on port 3000');
 });

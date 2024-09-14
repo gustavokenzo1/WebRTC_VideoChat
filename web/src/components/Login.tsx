@@ -32,13 +32,7 @@ export default function Login({
   }, []);
 
   const toggleMute = () => {
-    if (stream) {
-      const audioTrack = stream.getAudioTracks()[0];
-      if (audioTrack) {
-        audioTrack.enabled = !audioTrack.enabled;
-        setIsMuted(!audioTrack.enabled);
-      }
-    }
+    setIsMuted((prevState) => !prevState);
   };
 
   function handleJoinRoom() {

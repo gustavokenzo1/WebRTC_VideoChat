@@ -36,6 +36,9 @@ const connectWebSocket = (url: string): Promise<WebSocket> => {
 export default function Meet({ username, roomId, mode }: MeetProps) {
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  let localStream: MediaStream | null = null;
+  let remoteStream: MediaStream | null = null;
+
   const ws = useRef<WebSocket | null>(null);
   const peerConnection = useRef<RTCPeerConnection | null>(
     new RTCPeerConnection(servers)
@@ -43,14 +46,17 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
 
   async function getUserLocalMedia() {
     try {
-      const localStream = await navigator.mediaDevices.getUserMedia({
+      localStream = await navigator.mediaDevices.getUserMedia({
         video: true,
         audio: true,
       });
 
       localStream.getTracks().forEach((track) => {
         if (peerConnection.current) {
+
+          if(localStream) {
           peerConnection.current.addTrack(track, localStream);
+          }
         }
       });
 
@@ -63,7 +69,7 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
   }
 
   function getUserRemoteMedia() {
-    const remoteStream = new MediaStream();
+    remoteStream = new MediaStream();
 
     if (peerConnection.current && remoteVideoRef.current) {
       peerConnection.current.ontrack = (event) => {
@@ -79,55 +85,97 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
 
   async function handleCreateOffer() {
     if (peerConnection.current) {
-      peerConnection.current.onicecandidate = (event) => {
-        event.candidate &&
+      try {
+        await getUserLocalMedia();
+  
+        const offerDescription = await peerConnection.current.createOffer();
+        
+        await peerConnection.current.setLocalDescription(offerDescription);
+        console.log('Local description set:', offerDescription);
+  
+        ws.current?.send(
+          JSON.stringify({
+            type: 'offer',
+            roomId,
+            sdp: offerDescription.sdp,
+          })
+        );
+        console.log('Offer created and sent:', offerDescription);
+      } catch (error) {
+        console.error('Error creating offer:', error);
+      }
+    }
+  }
+
+  async function handleReceiveOffer(offer) {
+    if (peerConnection.current) {
+      console.log('Signaling state before setting remote offer:', peerConnection.current.signalingState);
+  
+      try {
+        await peerConnection.current.setRemoteDescription(new RTCSessionDescription(offer));
+        console.log('Offer successfully set as remote description.');
+      } catch (error) {
+        console.error('Failed to set remote description:', error);
+        return;
+      }
+  
+      console.log('Signaling state after setting remote offer:', peerConnection.current.signalingState);
+  
+      getUserRemoteMedia();
+  
+      if (peerConnection.current.signalingState === 'have-remote-offer') {
+        try {
+          const answerDescription = await peerConnection.current.createAnswer();
+          await peerConnection.current.setLocalDescription(answerDescription).then(() => {
+            console.log('Local description set:', answerDescription);
+          });
+  
           ws.current?.send(
             JSON.stringify({
-              type: 'ice-candidate',
-              candidate: event.candidate,
+              type: 'answer',
+              roomId,
+              sdp: answerDescription.sdp,
             })
           );
-      };
-
-      const offerDescription = await peerConnection.current.createOffer();
-      await peerConnection.current.setLocalDescription(offerDescription);
-
-      ws.current?.send(
-        JSON.stringify({
-          type: 'offer',
-          roomId,
-          sdp: offerDescription.sdp,
-        })
-      );
-      console.log('Offer criado e enviado:', offerDescription);
+          console.log('Answer created and sent:', answerDescription);
+        } catch (error) {
+          console.error('Failed to create or set local description for answer:', error);
+        }
+      } else {
+        console.warn('Unexpected signaling state after receiving offer:', peerConnection.current.signalingState);
+      }
     }
   }
-
-  async function handleReceiveOffer(offer: RTCSessionDescriptionInit) {
-    if (peerConnection.current) {
-      await peerConnection.current.setRemoteDescription(
-        new RTCSessionDescription(offer)
-      );
-
-      const answerDescription = await peerConnection.current.createAnswer();
-      await peerConnection.current.setLocalDescription(answerDescription);
-
-      ws.current?.send(
-        JSON.stringify({
-          type: 'answer',
-          roomId,
-          sdp: answerDescription.sdp,
-        })
-      );
-      console.log('Answer criado e enviado:', answerDescription);
-    }
-  }
+  
 
   useEffect(() => {
+
+
+      peerConnection.current.onicecandidate = (event) => {
+      if (event.candidate) {
+        console.log('Sending ICE candidate:', event.candidate);
+        ws.current?.send(
+          JSON.stringify({
+            type: 'ice-candidate',
+            candidate: event.candidate,
+            roomId,
+          })
+        );
+      } else {
+        console.log('ICE candidate gathering completed.');
+      }
+    };
+
+    peerConnection.current.onicegatheringstatechange = () => {
+      console.log('ICE gathering state changed to:', peerConnection.current.iceGatheringState);
+      if (peerConnection.current.iceGatheringState === 'complete') {
+        console.log('ICE gathering complete.');
+      }
+    };
     const connect = async () => {
       try {
         ws.current = await connectWebSocket('ws://localhost:3000');
-
+  
         ws.current.send(
           JSON.stringify({
             type: 'join',
@@ -135,49 +183,69 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
             roomId,
           })
         );
-
-        if (mode === 'local') {
-          handleCreateOffer();
-        }
-
-        ws.current.onmessage = (message) => {
+  
+        ws.current.onmessage = async (message) => {
           const data = JSON.parse(message.data);
-
-          if (data.type === 'offer' && mode === 'answer') {
-            console.log('Recebido offer, criando answer...');
-            handleReceiveOffer({
+  
+          console.log(data , mode)
+          if (data.type === 'offer' && mode === 'remote') {
+            console.log('Received offer, setting remote description...');
+            await handleReceiveOffer({
               type: 'offer',
               sdp: data.sdp,
             });
-          } else if (data.type === 'answer') {
-            const remoteDesc = new RTCSessionDescription({
+          }
+  
+          if (data.type === 'answer' && mode === 'local') {
+            console.log('Received answer, setting remote description...');
+            const answerDescription = new RTCSessionDescription({
               type: 'answer',
               sdp: data.sdp,
             });
-            console.log('Recebido answer, definindo remote description...');
-            peerConnection.current?.setRemoteDescription(remoteDesc);
-          } else if (data.type === 'ice-candidate') {
+            await peerConnection.current.setRemoteDescription(answerDescription);
+            console.log('Remote description set:', answerDescription);
+          }
+  
+          if (data.type === 'ice-candidate') {
             const candidate = new RTCIceCandidate({
-              candidate: data.candidate,
-              sdpMid: data.sdpMid,
-              sdpMLineIndex: data.sdpMLineIndex,
+              candidate: data.candidate.candidate,
+              sdpMid: data.candidate.sdpMid,
+              sdpMLineIndex: data.candidate.sdpMLineIndex,
             });
-            console.log('Adicionando ICE candidate:', candidate);
-            peerConnection.current?.addIceCandidate(candidate);
+            console.log('Adding ICE candidate:', candidate);
+            peerConnection.current.addIceCandidate(candidate);
           }
         };
+  
+     
+        peerConnection.current.onconnectionstatechange = () => {
+          console.log('Connection state change:', peerConnection.current.connectionState);
+          if (peerConnection.current.connectionState === 'connected') {
+            console.log('Peers are connected!');
+          } else if (peerConnection.current.connectionState === 'disconnected' || peerConnection.current.connectionState === 'failed') {
+            console.error('Connection failed or disconnected');
+          }
+        };
+  
+        if (mode === 'local') {
+          console.log('Creating offer...');
+          await handleCreateOffer();
+        }
       } catch (error) {
-        console.error('Falha ao conectar ao WebSocket:', error);
+        console.error('Error connecting to WebSocket:', error);
       }
     };
-
-    connect();
+  
     getUserLocalMedia();
     getUserRemoteMedia();
+    connect();
+  
   }, [username, roomId, mode]);
+  
 
   return (
     <div className="w-screen h-screen bg-cyan-900 flex flex-row p-8 gap-4 items-center justify-center text-white">
+      <p>ID da sala: {roomId}</p>
       <video
         autoPlay
         playsInline
