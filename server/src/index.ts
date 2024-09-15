@@ -8,10 +8,10 @@ const wss = new WebSocketServer({ server });
 
 interface Room {
   clients: Set<WebSocket>;
-  offer: RTCSessionDescriptionInit | null; 
+  offer: RTCSessionDescriptionInit | null;
 }
 
-const rooms: { [key: string]: Room } = {}; 
+const rooms: { [key: string]: Room } = {};
 
 wss.on('connection', (ws) => {
   let currentRoomId: string | null = null;
@@ -30,11 +30,10 @@ wss.on('connection', (ws) => {
         if (!rooms[currentRoomId]) {
           rooms[currentRoomId] = { clients: new Set(), offer: null };
         }
-        
+
         rooms[currentRoomId].clients.add(ws);
         console.log(`User ${data.username} joined room ${currentRoomId}`);
-        
-        
+
         if (rooms[currentRoomId].offer) {
           console.log('Sending offer to new client...');
           ws.send(
@@ -51,8 +50,8 @@ wss.on('connection', (ws) => {
         if (rooms[data.roomId]) {
           rooms[data.roomId].offer = { type: 'offer', sdp: data.sdp };
           console.log(`Offer stored for room ${data.roomId}`);
-          
-          rooms[data.roomId].clients.forEach(client => {
+
+          rooms[data.roomId].clients.forEach((client) => {
             if (client !== ws) {
               client.send(
                 JSON.stringify({
@@ -69,7 +68,7 @@ wss.on('connection', (ws) => {
       case 'answer':
         console.log('Sending answer to all clients...');
         if (rooms[data.roomId]) {
-          rooms[data.roomId].clients.forEach(client => {
+          rooms[data.roomId].clients.forEach((client) => {
             if (client !== ws) {
               client.send(
                 JSON.stringify({
@@ -85,7 +84,7 @@ wss.on('connection', (ws) => {
 
       case 'ice-candidate':
         if (rooms[data.roomId]) {
-          rooms[data.roomId].clients.forEach(client => {
+          rooms[data.roomId].clients.forEach((client) => {
             if (client !== ws) {
               client.send(
                 JSON.stringify({
@@ -99,63 +98,80 @@ wss.on('connection', (ws) => {
           });
         }
         break;
-        case 'raise-hand':
-          
-          if (rooms[data.roomId]) {
-            rooms[data.roomId].clients.forEach(client => {
-              if (client !== ws) {  
-                client.send(
-                  JSON.stringify({
-                    type: 'raise-hand',
-                    username: data.username,
-                    handRaised: data.handRaised,
-                  })
-                );
-              }
-            });
-          }
-          break;
-  
-        case 'mute-everyone':
-          if (rooms[data.roomId]) {
-            rooms[data.roomId].clients.forEach(client => {
-              if (client !== ws) {
-                client.send(
-                  JSON.stringify({
-                    type: 'mute-everyone',
-                    muted: data.muted,
-                  })
-                );
-              }
-            });
-          }
-          break;
 
-        case 'mute-user':
-          if (rooms[data.roomId]) {
-            rooms[data.roomId].clients.forEach(client => {
-              if (client !== ws) {
-                console.log('Sending mute-user message to client:', client);
-                console.log('ws:', ws);
-                client.send(
-                  JSON.stringify({
-                    type: 'mute-user',
-                    username: data.username,
-                    muted: data.muted,
-                  })
-                );
-              }
-            });
-          }
-      }
+      case 'raise-hand':
+        if (rooms[data.roomId]) {
+          rooms[data.roomId].clients.forEach((client) => {
+            if (client !== ws) {
+              client.send(
+                JSON.stringify({
+                  type: 'raise-hand',
+                  username: data.username,
+                  handRaised: data.handRaised,
+                })
+              );
+            }
+          });
+        }
+        break;
 
+      case 'mute-everyone':
+        if (rooms[data.roomId]) {
+          rooms[data.roomId].clients.forEach((client) => {
+            if (client !== ws) {
+              client.send(
+                JSON.stringify({
+                  type: 'mute-everyone',
+                  muted: data.muted,
+                })
+              );
+            }
+          });
+        }
+        break;
+
+      case 'mute-user':
+        if (rooms[data.roomId]) {
+          rooms[data.roomId].clients.forEach((client) => {
+            if (client !== ws) {
+              console.log('Sending mute-user message to client:', client);
+              console.log('ws:', ws);
+              client.send(
+                JSON.stringify({
+                  type: 'mute-user',
+                  username: data.username,
+                  muted: data.muted,
+                })
+              );
+            }
+          });
+        }
+        break;
+
+      case 'chat-message':
+        if (rooms[data.roomId]) {
+          rooms[data.roomId].clients.forEach((client) => {
+            if (client !== ws) {
+              client.send(
+                JSON.stringify({
+                  type: 'chat-message',
+                  username: data.username,
+                  message: data.message,
+                  roomId: data.roomId,
+                })
+              );
+            }
+          });
+        }
+        break;
+    }
   });
 
   ws.on('close', () => {
     if (currentRoomId && rooms[currentRoomId]) {
       rooms[currentRoomId].clients.delete(ws);
       if (rooms[currentRoomId].clients.size === 0) {
-        delete rooms[currentRoomId]; 
+        delete rooms[currentRoomId];
         console.log(`Room ${currentRoomId} was deleted as it's empty.`);
       }
     }
