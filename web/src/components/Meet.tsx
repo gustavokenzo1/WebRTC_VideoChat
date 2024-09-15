@@ -1,4 +1,4 @@
-import { faHandPaper, faHandRock } from '@fortawesome/free-solid-svg-icons';
+import { faHandPaper, faHandRock, faMicrophone, faMicrophoneSlash } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { useEffect, useRef, useState } from 'react';
 
@@ -52,11 +52,12 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
   );
 
   const [isHandRaised, setIsHandRaised] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isRemoteMuted, setIsRemoteMuted] = useState(false);
 
   const toggleRaiseHand = () => {
     setIsHandRaised(!isHandRaised);
 
-    // Send raise hand message to other participants (WebSocket integration)
     ws.current?.send(
       JSON.stringify({
         type: 'raise-hand',
@@ -66,6 +67,27 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
       })
     );
   };
+
+  const toggleMute = () => {
+    
+    ws.current?.send(
+      JSON.stringify({
+        type: 'mute-user',
+        username, 
+        muted: !isMuted,
+        roomId,
+      })
+    );
+    setIsMuted(!isMuted);
+
+    localStream?.getAudioTracks().forEach((track) => {
+      track.enabled = !track.enabled; 
+    });
+  };
+
+  function muteRemoteAudio(muted: boolean) {
+    setIsRemoteMuted(muted);
+  }
 
   async function getUserLocalMedia() {
     try {
@@ -92,6 +114,8 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
   }
 
   function getUserRemoteMedia() {
+    console.log('Creating remote stream...');
+
     remoteStream = new MediaStream();
     let videoTrackSet = false;
 
@@ -104,7 +128,6 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
         }
         if (track.kind === 'video' && remoteVideoRef.current) {
           if (!videoTrackSet) {
-            // Set the video track if it's the first one or based on custom logic
             remoteVideoRef.current.srcObject = remoteStream;
             videoTrackSet = true;
             console.log('Video track set:', track);
@@ -115,7 +138,6 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
         });
       };
 
-      // remoteVideoRef.current.srcObject = remoteStream;
     }
   }
 
@@ -185,7 +207,6 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
             );
           });
       
-          // Clear the buffer once sent
           // iceCandidateBuffer = [];
 
           console.log('Answer created and sent:', answerDescription);
@@ -274,8 +295,6 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
             );
           });
       
-          // Clear the buffer once sent
-          // iceCandidateBuffer = [];
 
 
             console.log('Remote description set:', answerDescription);
@@ -295,8 +314,13 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
         if (data.type === 'raise-hand') {
           console.log(`${data.username} has ${data.handRaised ? 'raised' : 'lowered'} their hand.`);
     
-          // Call a function to update the hand status UI for the user
           setRemoteRaiseHand(data.handRaised);
+        }
+
+        if (data.type === 'mute-user') {
+          console.log(`Received mute-user for ${data.username}. Muted: ${data.muted}`);
+    
+          muteRemoteAudio(data.muted);
         }
         }
   
@@ -334,6 +358,18 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
     <div className="w-screen h-screen bg-cyan-900 flex flex-col gap-4 items-center justify-center text-white p-8">
       <div className="flex flex-row gap-4 w-full justify-between items-center">
         <p>ID da sala: {roomId}</p>
+  
+        {/* Mute/Unmute button */}
+        <button
+          onClick={toggleMute}
+          className={`px-4 py-2 rounded-lg ${isMuted ? 'bg-red-600' : 'bg-green-600'} hover:bg-opacity-80`}
+        >
+          <FontAwesomeIcon
+            icon={isMuted ? faMicrophoneSlash : faMicrophone}
+            className="text-2xl"
+          />{' '}
+          {isMuted ? 'Unmute Me' : 'Mute Me'}
+        </button>
       </div>
   
       <div className="flex flex-row gap-4 w-full justify-center">
@@ -360,12 +396,12 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
           icon={remoteRaiseHand ? faHandPaper : faHandRock}
           className={`text-4xl ${remoteRaiseHand ? 'text-yellow-400' : 'text-gray-400'}`}
         />
-
         <video
           autoPlay
           playsInline
           className="rounded-lg w-1/2 bg-gray-800"
           ref={remoteVideoRef}
+          muted={isRemoteMuted}
         ></video>
       </div>
     </div>

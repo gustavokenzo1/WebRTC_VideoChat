@@ -135,6 +135,8 @@ wss.on('connection', (ws) => {
           if (rooms[data.roomId]) {
             rooms[data.roomId].clients.forEach(client => {
               if (client !== ws) {
+                console.log('Sending mute-user message to client:', client);
+                console.log('ws:', ws);
                 client.send(
                   JSON.stringify({
                     type: 'mute-user',
