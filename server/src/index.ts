@@ -155,6 +155,8 @@ wss.on('connection', (ws) => {
         if (rooms[data.roomId]) {
           rooms[data.roomId].clients.forEach((client) => {
             if (client !== ws) {
+              console.log(JSON.stringify(data.message));
+              
               client.send(
                 JSON.stringify({
                   type: 'chat-message',
