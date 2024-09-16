@@ -390,7 +390,7 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
             icon={isMuted ? faMicrophoneSlash : faMicrophone}
             className="text-2xl"
           />{' '}
-          {isMuted ? 'Unmute Me' : 'Mute Me'}
+          {isMuted ? 'Desmutar' : 'Mutar'}
         </button>
         <div className="flex items-center gap-2">
           <FontAwesomeIcon
@@ -403,7 +403,7 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
             onClick={toggleRaiseHand}
             className="px-4 py-2 bg-green-600 rounded-lg hover:bg-green-700"
           >
-            {isHandRaised ? 'Lower Hand' : 'Raise Hand'}
+            {isHandRaised ? 'Abaixar a mão' : 'Levantar a mão'}
           </button>
         </div>
         <button
