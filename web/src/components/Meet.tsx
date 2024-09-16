@@ -59,12 +59,10 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
   const [isMuted, setIsMuted] = useState(false);
   const [isRemoteMuted, setIsRemoteMuted] = useState(false);
 
-  // Novo estado para controle do compartilhamento de tela
   const [isScreenSharing, setIsScreenSharing] = useState(false);
 
   let screenTrack: MediaStreamTrack | null = null;
 
-  // Estados para o chat
   const [messages, setMessages] = useState<
     { username: string; message: string }[]
   >([]);
@@ -208,19 +206,6 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
           console.log('ICE candidate gathering completed.');
         }
       };
-
-      peerConnection.current.onicegatheringstatechange = () => {
-        if (!peerConnection.current) return;
-        console.log(
-          'ICE gathering state changed to:',
-          peerConnection.current.iceGatheringState
-        );
-        if (peerConnection.current.iceGatheringState === 'complete') {
-          console.log('ICE gathering complete.');
-        }
-      };
-
-      // Configurando o stream remoto e o manipulador ontrack
       remoteStream = new MediaStream();
 
       peerConnection.current.ontrack = (event) => {
@@ -229,26 +214,9 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
         });
       };
 
-      // Definindo o srcObject do elemento de vídeo remoto
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = remoteStream;
       }
-
-      peerConnection.current.onconnectionstatechange = () => {
-        if (!peerConnection.current) return;
-        console.log(
-          'Connection state change:',
-          peerConnection.current.connectionState
-        );
-        if (peerConnection.current.connectionState === 'connected') {
-          console.log('Peers are connected!');
-        } else if (
-          peerConnection.current.connectionState === 'disconnected' ||
-          peerConnection.current.connectionState === 'failed'
-        ) {
-          console.error('Connection failed or disconnected');
-        }
-      };
     }
 
     const connect = async () => {
@@ -266,9 +234,7 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
         ws.current.onmessage = async (message) => {
           const data = JSON.parse(message.data);
 
-          console.log(data, mode);
           if (data.type === 'offer' && mode === 'remote') {
-            console.log('Received offer, setting remote description...');
             await handleReceiveOffer({
               type: 'offer',
               sdp: data.sdp,
@@ -276,7 +242,6 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
           }
           if (peerConnection && peerConnection.current) {
             if (data.type === 'answer' && mode === 'local') {
-              console.log('Received answer, setting remote description...');
               const answerDescription = new RTCSessionDescription({
                 type: 'answer',
                 sdp: data.sdp,
@@ -294,8 +259,6 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
                   })
                 );
               });
-
-              console.log('Remote description set:', answerDescription);
             }
 
             if (data.type === 'ice-candidate') {
@@ -304,38 +267,23 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
                 sdpMid: data.candidate.sdpMid,
                 sdpMLineIndex: data.candidate.sdpMLineIndex,
               });
-              console.log('Adding ICE candidate:', candidate);
               await peerConnection.current.addIceCandidate(candidate);
             }
           }
 
           if (data.type === 'raise-hand') {
-            console.log(
-              `${data.username} has ${
-                data.handRaised ? 'raised' : 'lowered'
-              } their hand.`
-            );
-
-            // Verifica se a mensagem não é do usuário local
             if (data.username !== username) {
               setRemoteRaiseHand(data.handRaised);
             }
           }
 
           if (data.type === 'mute-user') {
-            console.log(
-              `Received mute-user for ${data.username}. Muted: ${data.muted}`
-            );
-
             if (data.username !== username) {
               muteRemoteAudio(data.muted);
             }
           }
 
           if (data.type === 'chat-message') {
-            console.log(
-              `Received chat message from ${data.username}: ${data.message}`
-            );
             setMessages((prevMessages) => [
               ...prevMessages,
               { username: data.username, message: data.message },
@@ -344,12 +292,9 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
         };
 
         if (mode === 'local') {
-          console.log('Creating offer...');
           await handleCreateOffer();
         }
-      } catch (error) {
-        console.error('Error connecting to WebSocket:', error);
-      }
+      } catch (error) {}
     };
 
     connect();
@@ -363,7 +308,6 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
         const offerDescription = await peerConnection.current.createOffer();
 
         await peerConnection.current.setLocalDescription(offerDescription);
-        console.log('Local description set:', offerDescription);
 
         ws.current?.send(
           JSON.stringify({
@@ -372,46 +316,25 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
             sdp: offerDescription.sdp,
           })
         );
-        console.log('Offer created and sent:', offerDescription);
-      } catch (error) {
-        console.error('Error creating offer:', error);
-      }
+      } catch (error) {}
     }
   }
 
   async function handleReceiveOffer(offer: RTCSessionDescriptionInit) {
     if (peerConnection.current) {
-      console.log(
-        'Signaling state before setting remote offer:',
-        peerConnection.current.signalingState
-      );
-
       try {
         await peerConnection.current.setRemoteDescription(
           new RTCSessionDescription(offer)
         );
-        console.log('Offer successfully set as remote description.');
       } catch (error) {
-        console.error('Failed to set remote description:', error);
         return;
       }
-
-      console.log(
-        'Signaling state after setting remote offer:',
-        peerConnection.current.signalingState
-      );
-
-      // Chame getUserLocalMedia aqui
       await getUserLocalMedia();
 
       if (peerConnection.current.signalingState === 'have-remote-offer') {
         try {
           const answerDescription = await peerConnection.current.createAnswer();
-          await peerConnection.current
-            .setLocalDescription(answerDescription)
-            .then(() => {
-              console.log('Local description set:', answerDescription);
-            });
+          await peerConnection.current.setLocalDescription(answerDescription);
 
           ws.current?.send(
             JSON.stringify({
@@ -422,7 +345,6 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
           );
 
           iceCandidateBuffer.forEach((candidate) => {
-            console.log('Sending stored ICE candidate:', candidate);
             ws.current?.send(
               JSON.stringify({
                 type: 'ice-candidate',
@@ -431,19 +353,7 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
               })
             );
           });
-
-          console.log('Answer created and sent:', answerDescription);
-        } catch (error) {
-          console.error(
-            'Failed to create or set local description for answer:',
-            error
-          );
-        }
-      } else {
-        console.warn(
-          'Unexpected signaling state after receiving offer:',
-          peerConnection.current.signalingState
-        );
+        } catch (error) {}
       }
     }
   }
@@ -458,7 +368,6 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
           roomId,
         })
       );
-      // Opcional: adicionar a mensagem ao estado local
       setMessages((prevMessages) => [
         ...prevMessages,
         { username, message: newMessage },
@@ -469,11 +378,8 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
 
   return (
     <div className="w-screen h-screen bg-cyan-900 flex text-white">
-      {/* Sidebar */}
       <div className="w-1/4 h-full flex flex-col p-4 gap-4 bg-gray-800">
         <p>ID da sala: {roomId}</p>
-
-        {/* Botão de Mutar/Desmutar */}
         <button
           onClick={toggleMute}
           className={`px-4 py-2 rounded-lg ${
@@ -486,8 +392,6 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
           />{' '}
           {isMuted ? 'Unmute Me' : 'Mute Me'}
         </button>
-
-        {/* Levantar/Abaixar a Mão */}
         <div className="flex items-center gap-2">
           <FontAwesomeIcon
             icon={isHandRaised ? faHandPaper : faHandRock}
@@ -502,16 +406,12 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
             {isHandRaised ? 'Lower Hand' : 'Raise Hand'}
           </button>
         </div>
-
-        {/* Compartilhar Tela */}
         <button
           onClick={startScreenShare}
           className="px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700"
         >
           {isScreenSharing ? 'Parar Compartilhamento' : 'Compartilhar Tela'}
         </button>
-
-        {/* Área de chat */}
         <div className="flex-1 flex flex-col justify-between mt-4">
           <div className="h-full overflow-y-auto mb-4 bg-gray-700 p-2 rounded">
             {messages.map((msg, index) => (
@@ -542,8 +442,6 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
           </div>
         </div>
       </div>
-
-      {/* Main Content */}
       <div className="w-3/4 h-full flex flex-col items-center justify-center p-4 gap-4">
         <div className="flex flex-row gap-4 w-full justify-center items-center">
           <video
