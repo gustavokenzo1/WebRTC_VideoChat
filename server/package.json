@@ -1,12 +1,14 @@
 {
   "name": "mete",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "dist/index.js",
   "license": "MIT",
   "scripts": {
-    "dev": "tsx watch src/index.ts"
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc"
   },
   "devDependencies": {
+    "@flydotio/dockerfile": "^0.5.8",
     "@types/express": "^4.17.21",
     "@types/node": "^22.5.4",
     "@types/ws": "^8.5.12",

@@ -221,8 +221,8 @@ export default function Meet({ username, roomId, mode }: MeetProps) {
 
     const connect = async () => {
       try {
-        ws.current = await connectWebSocket('ws://localhost:3000');
-
+        ws.current = await connectWebSocket('wss://server-misty-pond-1192.fly.dev/');
+  
         ws.current.send(
           JSON.stringify({
             type: 'join',

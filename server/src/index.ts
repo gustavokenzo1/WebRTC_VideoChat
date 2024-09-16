@@ -1,10 +1,13 @@
 import express from 'express';
 import http from 'http';
+import cors from 'cors'; 
 import { WebSocketServer, WebSocket } from 'ws';
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
+
+app.use(cors());
 
 interface Room {
   clients: Set<WebSocket>;
